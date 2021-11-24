@@ -32,8 +32,8 @@ class CardPool(object):
         self.cardNameList = ['Tempura', 'Sashimi', 'Dumpling', '1 Maki roll',
         '2 Maki roll', '3 Maki roll', 'Salmon Nigiri', 'Egg Nigiri', 'Squid Nigiri',
         'Pudding', 'Wasabi', 'Chopsticks']
-   
-    #give out cards randomly to each player
+    
+    #give out cards randomly to each player without replacement
     def deal(self,n):
         hand = []
         for i in range(n):
@@ -69,10 +69,13 @@ class Player(object):
         cards['Pudding'] = 0
         cards['Wasabi'] = 0
         cards['Chopsticks'] = 0
-        self.cards = cards
+        self.initCards = copy.deepcopy(cards)
+        self.cards = copy.deepcopy(cards)
         self.cardSeq = []
-        self.wasabiNotUsed = False
         self.chopsticksNotUsed = False
+        #number of maki rolls & puddings
+        self.makiRolls = 0
+        self.puddings = 0
 
     #add cards to the hand
     def addCards(self,hand):
@@ -83,52 +86,46 @@ class Player(object):
         self.cards[card] += 1
         self.cardSeq.append(card)
         self.hand.pop(self.hand.index(card))
-        #if card is chopsticks, update
-        if card == 'Chopsticks':
-            self.wasabiNotUsed = True
+        #check if the chosen card is chopsticks
+        self.checkChopsticks()
 
     #choose two cards from the hand for chopsticks
     def useChopsticks(self,card1,card2):
+        self.chopsticksNotUsed = False
         self.cards[card1] += 1
         self.cards[card2] += 1
         self.cardSeq.append(card1)
-        self.cardSeq.append(card2)
         self.hand.pop(self.hand.index(card1))
-        self.hand.pop(self.hand.index(card2))   
+        self.checkChopsticks()
+        self.cardSeq.append(card2)
+        self.hand.pop(self.hand.index(card2))
+        self.checkChopsticks()   
         #put chopsticks back when used
+        index = self.cardSeq.index('Chopsticks')
+        self.cardSeq.pop(index)
         self.cards['Chopsticks'] -= 1
         self.hand.append('Chopsticks')     
-        self.chopsticksNotUsed = False
 
     #choose one card randomly
     def choose1Randomly(self):
-        picked = False
-        while not picked:
-            index = random.randint(0,len(self.cardNameList)-1)
-            card = self.cardNameList[index]
-            if  card in self.hand:
-                picked = True
-                return card
+        if len(self.hand) > 1:
+            index = random.randint(0,len(self.hand)-1)
+        else:
+            index = 0
+        return self.hand[index]
 
     #choose two cards randomly
     def choose2Randomly(self):
-        card1,card2 = '',''
-        picked = False
-        while not picked:
-            index = random.randint(0,len(self.cardNameList)-1)
-            card1 = self.cardNameList[index]
-            if card1 in self.hand:
-                picked = True
-        while not picked:
-            index = random.randint(0,len(self.cardNameList)-1)
-            card2 = self.cardNameList[index]
-            if card2 in self.hand:
-                #if two chosen cards are the same, # of cards in hand must >= 2
-                if card2 == card1:
-                    if self.hand[card1] >= 2:
-                        picked = True
-                else:
-                    picked = True
+        if len(self.hand) > 2:
+            index1 = random.randint(0,len(self.hand)-1)
+            card1 = self.hand[index1]
+            self.hand.pop(index1)
+            index2 = random.randint(0,len(self.hand)-1)
+            card2 = self.hand[index2]
+            self.hand.append(card1)
+        else:
+            card1 = self.hand[0]
+            card2 = self.hand[1]
         return card1,card2
 
     #give the current hand to the next player
@@ -137,24 +134,36 @@ class Player(object):
         newPlayer = app.players[newPlayerSerial]
         return newPlayer.hand
 
-    #count the score of puddings
-    def countPuddingScore(app):
-        pass
+    #check if the chose card is chopsticks
+    def checkChopsticks(self):
+        if (self.cardSeq[-1] == 'Chopsticks' and
+            len(self.hand) >= 2):
+            self.chopsticksNotUsed = True
+
+    #check the number of maki rolls
+    def checkMakiRolls(self):
+        self.makiRolls += self.cards['1 Maki roll'] * 1
+        self.makiRolls += self.cards['2 Maki roll'] * 2
+        self.makiRolls += self.cards['3 Maki roll'] * 3
+
+    #check the number of puddings
+    def checkPuddings(self):
+        self.puddings += self.cards['Pudding']
 
     #count the bonus of wasabi
     def countWasabiBonus(self):
         WasabiNotUsed = False
-        for card in self.cardSeq[-1:]:
+        for card in self.cardSeq:
             if card == 'Wasabi':
                 WasabiNotUsed = True
-            if card.endswith('Nigiri') and WasabiNotUsed:
+            elif card.endswith('Nigiri') and WasabiNotUsed:
                 if card == 'Salmon Nigiri':
                     self.score += 2 * 2
-                if card == 'Squid Nigiri':
+                elif card == 'Squid Nigiri':
                     self.score += 2 * 3
-                if card == 'Egg Nigiri':
+                elif card == 'Egg Nigiri':
                     self.score += 2 * 1
-                self.wasabiNotUsed = False
+                WasabiNotUsed = False
 
     #count final
     def countFinalScore(self):
@@ -166,8 +175,6 @@ class Player(object):
         self.score += self.cards['Squid Nigiri'] * 3
         self.score += self.cards['Egg Nigiri'] * 1
         self.countWasabiBonus()
-        #remain maki roll, pudding
-        #wasabi not working, determine if chopstick
 
     #player1 < player2 calls player1.__lt__(player2)
     def __lt__(self, other):
@@ -210,10 +217,72 @@ class Game(object):
                 card = input(f"Please choose a card for player {player.serial}: ")
                 player.chooseCard(card)
 
-    #count the scores for every player
+    #count the score of maki rolls --- most: 6; second: 3; split ties
+    def countMakiRollScore(self,app):
+        max1, max2 = 0, 0
+        listMax1, listMax2 = [], []
+        for player in app.players:
+            #if max1 = 0 and player'maki rolls > 0, update
+
+            #if player has the most maki rolls, update all of listMax1
+            if player.makiRolls > max1:
+                #max1 --> max2
+                max2 = max1
+                listMax2 = copy.deepcopy(listMax1)
+                listMax1.clear()
+                listMax1.append(player)
+                max1 = player.makiRolls
+            #if tie, simply add to the name list
+            elif player.makiRolls == max1:
+                listMax1.append(player)
+            #if > max2 & < max1, update all of listMax2
+            elif player.makiRolls > max2 and player.makiRolls < max1:
+                listMax2.clear()
+                listMax2.append(player)
+                max2 = player.makiRolls
+            #if tie, simply add to the name list
+            elif player.makiRolls == max2:
+                listMax2.append(player)   
+        #split the score when tie     
+        for player in listMax1:
+            player.score += 6 // len(listMax1)
+        for player in listMax2:
+            player.score += 3 // len(listMax2)
+
+    #count the score of puddings
+    def countPuddingScore(self,app):
+        max, min = 0, 10
+        listMax, listMin = [], []
+        for player in app.players:
+            #if player has the most puddings, update all of listMax
+            if player.puddings > max:
+                listMax.clear()
+                listMax.append(player)
+                max = player.puddings
+            #if tie, simply add to the name list
+            elif player.puddings == max:
+                listMax.append(player)
+            #if player has the least puddings, update all of listMin
+            if player.puddings < min:
+                listMin.clear()
+                listMin.append(player)
+                min = player.puddings
+            #if tie, simply add to the name list
+            elif player.puddings == min:
+                listMin.append(player)   
+        #split the score when tie         
+        for player in listMax:
+            player.score += 6 // len(listMax)
+        for player in listMin:
+            player.score -= 6 // len(listMin)        
+
+    # count the scores for every player
     def countScoreAll(self,app):
         for player in app.players:
             player.countFinalScore()
+            player.checkMakiRolls()
+            player.checkPuddings()
+        self.countMakiRollScore(app)
 
     def chooseAllRandom(self,app):
         for player in app.players:
@@ -239,39 +308,172 @@ class Game(object):
     #print all chosen cards
     def printCardsChosen(self,app):
         for player in app.players:
-            print(f"Player {player.serial} has chosen: {player.cards}")
+            print(f"Player {player.serial} has chosen: {player.cardSeq}")
 
     #print the finals after a round ends
     def printScores(self,app):
         for player in app.players:
             print(f"Player {player.serial}:", player.score)
 
+    def printRank(self,app):
+        rankList = self.rank(app)
+        rank = 1
+        for i in range(len(rankList)):
+            print (rank, "place: Player", rankList[i].serial)
+            if i > 0 and rankList[i].score == rankList[i-1].score:
+                pass
+            else:
+                rank += 1
+
+    #-------------------- initialize functions -------------------
+    def initRound(self,app):
+        for player in app.players:
+            player.cardSeq = []
+            player.cards = copy.deepcopy(player.initCards)
+            player.chopsticksNotUsed = False
+            player.hand = []
+            player.makiRolls = 0
+            #puddings are not initialized!!
+
+    #--------------------- play functions ------------------------
+
     #play a round
     def playRound(self,app):
         self.dealAll(app)
         remainingTurns = app.numOfCardsInHand
         while (remainingTurns > 0):
-            self.printCardsToChoose(app)
-            self.chooseAll(app)
+            #self.printCardsToChoose(app)
+            self.chooseAllRandom(app)
             self.switchAll(app)
             remainingTurns -= 1
         self.countScoreAll(app)
         self.printCardsChosen(app)
         self.printScores(app)
 
+    def playGame(self,app):
+        for round in range(app.rounds):
+            self.playRound(app)
+            self.initRound(app)
+        self.countPuddingScore(app)
+        self.printScores(app)
+        self.printRank(app)
+
+##########################################
+# Splash Screen Mode
+##########################################
+
+def splashScreenMode_redrawAll(app, canvas):
+    font = 'Courier 26 italic bold'
+    canvas.create_text(app.width/2, 150, text='Welcome to Sushi GO!', font=font)
+    canvas.create_text(app.width/2, 250, text='Press any key to start the game!', font=font)
+
+def splashScreenMode_keyPressed(app, event):
+    app.mode = 'gameMode'
+
+#################################################
+# Game Mode
+#################################################
+
+#get player number
+def gameMode_getPlayers(app,n):
+    app.numOfPlayers = int(n)
+    #2 players-10 cards; 3 players-9 cards; 4 players-8 cards; 5 players-7 cards
+    app.numOfCardsInHand = 12 - app.numOfPlayers
+    app.players = initializePlayers(app.numOfPlayers)
+    app.game.playGame(app)
+
+def gameMode_keyPressed(app,event):
+    if app.waitingForKeyPressed:
+        if event.key >= '2' and event.key <= '5':
+            app.validNumber = True
+            app.waitingForKeyPressed = False
+            gameMode_getPlayers(app,event.key)
+        else:
+            app.validNumber = False
+            print("Invalid!")
+
+        
+def gameMode_timerFired(app):
+    if not app.waitingForKeyPressed:
+        pass
+
+
+#------------------------- draw functions ---------------------------
+def gameMode_drawRequest(app,canvas):
+    font = 'Courier 26 italic bold'
+    canvas.create_text(900/2, 700/2, text = "Please choose the number of players (2 ~ 5)",
+        font = font)
+
+def gameMode_drawInvalid(app,canvas):
+    print("Invalid!")
+    font = 'Courier 26 italic bold'
+    canvas.create_text(900/2, 700/2, text = "Invalid number! (Please choose between 2 ~ 5)",
+        font = font)
+
+def gameMode_drawStart(app,canvas):
+    font = 'Courier 26 italic bold'
+    canvas.create_text(900/2, 700/2, text = "Start!",
+        font = font) 
+
+def gameMode_drawHand(app,canvas):
+    pass   
+
+#def drawHand(app,canvas):
+    #for card in
+    #canvas.create_image(200,300,image = ImageTk.PhotoImage(app.Sashimi))
+
+def gameMode_redrawAll(app,canvas):
+    if app.waitingForKeyPressed:
+        if app.validNumber:
+            gameMode_drawRequest(app,canvas)
+        else:
+            gameMode_drawInvalid(app,canvas)
+    else:
+        gameMode_drawStart(app,canvas)
+
+
+#start the app
+def gameMode_playSushiGO():
+    runApp(width = 900, height = 700)
+
+
 #################################################
 # Setting
 #################################################
 
 def appStarted(app):
+    app.mode = 'splashScreenMode'
+    app.waitingForKeyPressed = True
+    app.validNumber = True
     app.game = Game()
-    app.numOfPlayers = int(input("Please choose the number of players (2 ~ 5)"))
     #2 players-10 cards; 3 players-9 cards; 4 players-8 cards; 5 players-7 cards
-    app.numOfCardsInHand = 12 - app.numOfPlayers
+    #app.numOfCardsInHand = 8 - app.numOfPlayers
     app.cardPool = CardPool()
-    app.players = initializePlayers(app.numOfPlayers)
-    app.game.playRound(app)
-    
+    #app.players = initializePlayers(app.numOfPlayers)
+    loadImage(app)
+    #3 rounds in a game
+    app.rounds = 3
+    #app.game.playGame(app)
+   
+#load the images
+def loadImage(app):
+    app.makiroll1 = app.loadImage('1 Maki roll.jpg')
+    app.Makiroll1 = app.scaleImage(app.makiroll1,1/20)
+    app.makiroll2 = app.loadImage('2 Maki roll.jpg')
+    app.Makiroll2 = app.scaleImage(app.makiroll2,1/15)
+    app.Makiroll3 = app.loadImage('3 Maki roll.jpg')
+    app.chopsticks = app.loadImage('Chopsticks.jpg')
+    app.Chopsticks = app.scaleImage(app.chopsticks,1/15)
+    app.Dumpling = app.loadImage('Dumpling.JPG')
+    app.tempura = app.loadImage('Tempura.JPG')
+    app.Tempura = app.scaleImage(app.tempura,1/15)
+    app.Sashimi = app.loadImage('Sashimi.JPG')
+    app.Pudding = app.loadImage('Pudding.JPG')
+    app.EggNigiri = app.loadImage('Egg Nigiri.JPG')
+    app.SalmonNigiri = app.loadImage('Salmon Nigiri.jpg')
+    app.SquidNigiri = app.loadImage('Squid Nigiri.jpg')
+    app.Wasabi = app.loadImage('Wasabi.JPG')
+
 #add players to the list
 def initializePlayers(n):
     players = []
@@ -279,16 +481,13 @@ def initializePlayers(n):
         players.append(Player(i+1))
     return players
 
-#start the app
-def playSushiGO():
-    runApp(width = 400, height = 600)
 
 #################################################
 # main
 #################################################
 
 def main():
-    playSushiGO()
+    gameMode_playSushiGO()
 
 if __name__ == '__main__':
     main()
